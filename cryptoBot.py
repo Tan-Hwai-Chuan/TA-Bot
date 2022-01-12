@@ -4,9 +4,7 @@ import websocket, json, time
 import sqlalchemy as sql
 import pandas as pd
 import config
-import threading
 import winsound
-import math
 from datetime import datetime
 from binance.client import Client
 from binance.enums import *
@@ -21,19 +19,19 @@ ONE_MIN_START = 0
 ONE_MIN_END = 59
 ADX_INDICATOR_PERIOD = 14
 ADX_INDICATOR_WEIGHT = 1.0/ADX_INDICATOR_PERIOD
-ADX_ARRAY_SIZE = 60
-POS_DI_ARRAY_SIZE = 60
-NEG_DI_ARRAY_SIZE = 60
-CP_ARRAY_SIZE = 60
-PHP_ARRAY_SIZE = 60
-PLWP_ARRAY_SIZE = 60
+ADX_ARRAY_SIZE = 120
+POS_DI_ARRAY_SIZE = 120
+NEG_DI_ARRAY_SIZE = 120
+CP_ARRAY_SIZE = 120
+PHP_ARRAY_SIZE = 120
+PLWP_ARRAY_SIZE = 120
 DAY_CANDLES_PERIOD = "300 day ago UTC"
 EMA_9 = 9
 EMA_12 = 12
 EMA_26 = 26
 EMA_50 = 50
 EMA_200 = 200
-DATABASE_NAME = 'ADX_PEAK_TEST_3'
+DATABASE_NAME = 'RECORD_CRYPTO'
 PRINT_NAME = 'ADX_PEAK_TEST_3_ADX>15'
 TRADING_FEES = 0.00075
 BREAK_EVEN_RATIO = (1 + TRADING_FEES)/(1 - TRADING_FEES)
@@ -411,14 +409,16 @@ def on_message(ws, message):
                     adxHL = find_peak_trough(allCrypto[crypto['s']]['ADX'],adxHL)
                     # closesHL = find_peak_trough(allCrypto[crypto['s']]['CP'],closesHL)
 
-                    if(len(adxHL) >= 2):
-
+                    if(len(adxHL) >= 2 and len(allCrypto[crypto['s']]['ADX']) > 4):
                         if ((( allCrypto[crypto['s']]['ATR'] / float(allCrypto[crypto['s']]['LP']) ) * 100.0) > ATR_PERCENT and
                                 adxHL[0]['H/L'] == 'L' and
                                 adxHL[1]['H/L'] == 'H' and
-                                allCrypto[crypto['s']]['ADX'][adxHL[1]['index']] > 15 and
+                                allCrypto[crypto['s']]['ADX'][adxHL[1]['index']] > 20 and
                                 allCrypto[crypto['s']]['ADX'][-1] > allCrypto[crypto['s']]['ADX'][adxHL[1]['index']] and 
-                                allCrypto[crypto['s']]['POS_DI'][adxHL[1]['index']] > allCrypto[crypto['s']]['NEG_DI'][adxHL[1]['index']] and
+                                (allCrypto[crypto['s']]['ADX'][-2] < allCrypto[crypto['s']]['ADX'][adxHL[1]['index']] or
+                                    allCrypto[crypto['s']]['ADX'][-3] < allCrypto[crypto['s']]['ADX'][adxHL[1]['index']] or
+                                    allCrypto[crypto['s']]['ADX'][-4] < allCrypto[crypto['s']]['ADX'][adxHL[1]['index']]) and
+                                # allCrypto[crypto['s']]['POS_DI'][adxHL[1]['index']] > allCrypto[crypto['s']]['NEG_DI'][adxHL[1]['index']] and
                                 allCrypto[crypto['s']]['POS_DI'][-1] > allCrypto[crypto['s']]['NEG_DI'][-1] and
                                 wallet['IN_POSITION'] == False and 
                                 allCrypto[crypto['s']]['symbol'].endswith('USDT') and
@@ -460,6 +460,7 @@ def on_message(ws, message):
                             wallet['COIN'] = crypto['s']
                             wallet['ASSET_WORTH'] = price * amount
                             wallet['total_trade'] += 1
+                            print(wallet)
 
                         elif(wallet['IN_POSITION'] == True and allCrypto[crypto['s']]['symbol'] == wallet['COIN']):
 
@@ -498,6 +499,7 @@ def on_message(ws, message):
 
                                     frame = createFrame_boughtCoin(boughtCrypto[crypto['s']])
                                     frame.to_sql(DATABASE_NAME, engine, if_exists='append', index=False)
+                                    print(wallet)
                             else:
                                 if(current_bid_price > (boughtCrypto[crypto['s']]['boughtPrice'] + (boughtCrypto[crypto['s']]['ATR'] * 3)) or
                                     current_bid_price < (boughtCrypto[crypto['s']]['boughtPrice'] - (boughtCrypto[crypto['s']]['ATR'] * 2))):
@@ -526,6 +528,7 @@ def on_message(ws, message):
 
                                     frame = createFrame_boughtCoin(boughtCrypto[crypto['s']])
                                     frame.to_sql(DATABASE_NAME, engine, if_exists='append', index=False)
+                                    print(wallet)
             
                         ############################################################################################################################
 
@@ -667,52 +670,53 @@ def on_message(ws, message):
                 if(len(allCrypto[crypto]['CP']) < CP_ARRAY_SIZE):
                     # Update Closing Price
                     allCrypto[crypto]['CP'].append(allCrypto[crypto]['LP'])
-                if(len(allCrypto[crypto]['CP']) == CP_ARRAY_SIZE):
+                else:
                     allCrypto[crypto]['CP'].pop(0)
                     allCrypto[crypto]['CP'].append(allCrypto[crypto]['LP'])
                 if(len(allCrypto[crypto]['PHP']) < PHP_ARRAY_SIZE):
                     # Update Previous High Price
                     allCrypto[crypto]['PHP'].append(allCrypto[crypto]['HP'])
-                if(len(allCrypto[crypto]['PHP']) == PHP_ARRAY_SIZE):
+                else:
                     allCrypto[crypto]['PHP'].pop(0)
                     allCrypto[crypto]['PHP'].append(allCrypto[crypto]['HP'])
                 if(len(allCrypto[crypto]['PLWP']) < PLWP_ARRAY_SIZE):
                     # Update Precious Low Price
                     allCrypto[crypto]['PLWP'].append(allCrypto[crypto]['LWP'])
-                if(len(allCrypto[crypto]['PLWP']) == PLWP_ARRAY_SIZE):
+                else:
                     allCrypto[crypto]['PLWP'].pop(0)
                     allCrypto[crypto]['PLWP'].append(allCrypto[crypto]['HP'])
+
                 
-            # for crypto in activeCrypto:
-            #     if allCrypto[crypto]['ADX'] and allCrypto[crypto]['symbol'].endswith('BTCUSDT'):
-            #         cryptoSymbol = crypto
-            #         cryptoDB = {}
-            #         cryptoDB[crypto] = {}
-            #         cryptoDB[crypto]['symbol'] = allCrypto[crypto]['symbol']
-            #         cryptoDB[crypto]['T'] = allCrypto[crypto]['T']
-            #         cryptoDB[crypto]['OP'] = allCrypto[crypto]['OP']
-            #         cryptoDB[crypto]['LP'] = allCrypto[crypto]['LP']
-            #         cryptoDB[crypto]['HP'] = allCrypto[crypto]['HP']
-            #         cryptoDB[crypto]['LWP'] = allCrypto[crypto]['LWP']
-            #         cryptoDB[crypto]['CP'] = allCrypto[crypto]['CP'][-1]
-            #         cryptoDB[crypto]['BID'] = allCrypto[crypto]['BID']
-            #         cryptoDB[crypto]['ASK'] = allCrypto[crypto]['ASK']
-            #         cryptoDB[crypto]['NUM_QUOTE_TRADE'] = allCrypto[crypto]['NUM_QUOTE_TRADE']
-            #         cryptoDB[crypto]['TR'] = allCrypto[crypto]['TR'][-1]
-            #         cryptoDB[crypto]['POS_DM'] = allCrypto[crypto]['POS_DM'][-1]
-            #         cryptoDB[crypto]['NEG_DM'] = allCrypto[crypto]['NEG_DM'][-1]
-            #         cryptoDB[crypto]['DX'] = allCrypto[crypto]['DX'][-1]
-            #         cryptoDB[crypto]['PHP'] = allCrypto[crypto]['PHP']
-            #         cryptoDB[crypto]['PLWP'] = allCrypto[crypto]['PLWP'][-1]
-            #         cryptoDB[crypto]['S_POS_DM'] = allCrypto[crypto]['S_POS_DM']
-            #         cryptoDB[crypto]['S_NEG_DM'] = allCrypto[crypto]['S_NEG_DM']
-            #         cryptoDB[crypto]['ADX_ATR'] = allCrypto[crypto]['ADX_ATR']
-            #         cryptoDB[crypto]['ATR'] = allCrypto[crypto]['ATR']
-            #         cryptoDB[crypto]['POS_DI'] = allCrypto[crypto]['POS_DI'][-1]
-            #         cryptoDB[crypto]['NEG_DI'] = allCrypto[crypto]['NEG_DI'][-1]
-            #         cryptoDB[crypto]['ADX'] = allCrypto[crypto]['ADX'][-1]
-            #         frame = createFrame_general(cryptoDB[crypto])
-            #         frame.to_sql(cryptoSymbol, cryptoEngine, if_exists='append', index=False)
+            for crypto in activeCrypto:
+                if allCrypto[crypto]['ADX']:
+                    cryptoSymbol = crypto
+                    cryptoDB = {}
+                    cryptoDB[crypto] = {}
+                    cryptoDB[crypto]['symbol'] = allCrypto[crypto]['symbol']
+                    cryptoDB[crypto]['T'] = allCrypto[crypto]['T']
+                    cryptoDB[crypto]['OP'] = allCrypto[crypto]['OP']
+                    cryptoDB[crypto]['LP'] = allCrypto[crypto]['LP']
+                    cryptoDB[crypto]['HP'] = allCrypto[crypto]['HP']
+                    cryptoDB[crypto]['LWP'] = allCrypto[crypto]['LWP']
+                    cryptoDB[crypto]['CP'] = allCrypto[crypto]['CP'][-1]
+                    cryptoDB[crypto]['BID'] = allCrypto[crypto]['BID']
+                    cryptoDB[crypto]['ASK'] = allCrypto[crypto]['ASK']
+                    cryptoDB[crypto]['NUM_QUOTE_TRADE'] = allCrypto[crypto]['NUM_QUOTE_TRADE']
+                    cryptoDB[crypto]['TR'] = allCrypto[crypto]['TR'][-1]
+                    cryptoDB[crypto]['POS_DM'] = allCrypto[crypto]['POS_DM'][-1]
+                    cryptoDB[crypto]['NEG_DM'] = allCrypto[crypto]['NEG_DM'][-1]
+                    cryptoDB[crypto]['DX'] = allCrypto[crypto]['DX'][-1]
+                    cryptoDB[crypto]['PHP'] = allCrypto[crypto]['PHP'][-1]
+                    cryptoDB[crypto]['PLWP'] = allCrypto[crypto]['PLWP'][-1]
+                    cryptoDB[crypto]['S_POS_DM'] = allCrypto[crypto]['S_POS_DM']
+                    cryptoDB[crypto]['S_NEG_DM'] = allCrypto[crypto]['S_NEG_DM']
+                    cryptoDB[crypto]['ADX_ATR'] = allCrypto[crypto]['ADX_ATR']
+                    cryptoDB[crypto]['ATR'] = allCrypto[crypto]['ATR']
+                    cryptoDB[crypto]['POS_DI'] = allCrypto[crypto]['POS_DI'][-1]
+                    cryptoDB[crypto]['NEG_DI'] = allCrypto[crypto]['NEG_DI'][-1]
+                    cryptoDB[crypto]['ADX'] = allCrypto[crypto]['ADX'][-1]
+                    frame = createFrame_general(cryptoDB[crypto])
+                    frame.to_sql(cryptoSymbol, cryptoEngine, if_exists='append', index=False)
 
     except Exception as e:
         winsound.Beep(880, 300)
@@ -725,10 +729,10 @@ def on_message(ws, message):
     # print(endTime - startTime)
     # print(oneMinCounter)
     # print(boughtCrypto)
-    print(PRINT_NAME)
-    print(wallet)
-    # print(allCrypto['BTCUSDT'])
+    # print(PRINT_NAME)
+    # print(wallet)
     # ws.close()
+        
 
 def run():
     try:
@@ -738,8 +742,8 @@ def run():
         te = time.time()
         print(te - ts)
         ws = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
+        init()  
         while True:
-            init()  
             while(not start):
                 time_now = datetime.now()
                 time_now_seconds = time_now.second
