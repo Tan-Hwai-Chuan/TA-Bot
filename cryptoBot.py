@@ -384,7 +384,7 @@ def on_message(ws, message):
 
                 ema = 1000000.0
                 if(dailyEMA.get(crypto['s']) is not None):
-                    if dailyEMA[crypto['s']]['EMA_50'] != 0:
+                    if dailyEMA[crypto['s']]['EMA_200'] != 0:
                         ema = dailyEMA[crypto['s']]['EMA_200']
                     elif dailyEMA[crypto['s']]['EMA_50'] != 0:
                         ema = dailyEMA[crypto['s']]['EMA_50']
