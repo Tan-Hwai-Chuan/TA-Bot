@@ -18,7 +18,6 @@ ATR_PERCENT = 0.3
 ONE_MIN_START = 0
 ONE_MIN_END = 59
 ADX_INDICATOR_PERIOD = 14
-ADX_INDICATOR_WEIGHT = 1.0/ADX_INDICATOR_PERIOD
 ADX_ARRAY_SIZE = 120
 POS_DI_ARRAY_SIZE = 120
 NEG_DI_ARRAY_SIZE = 120
@@ -432,8 +431,8 @@ def on_message(ws, message):
                             last_pullback = find_pullback(allCrypto[crypto['s']]['CP'],allCrypto[crypto['s']]['PLWP'])
                             pullback = True
                             if (last_pullback and
-                                (((float(allCrypto[crypto['s']]['ASK']) - last_pullback) / float(allCrypto[crypto['s']]['ASK'])) * 100) > ATR_PERCENT*2):
-                                amount = (wallet['Capital'] * 0.005) / ((float(allCrypto[crypto['s']]['ASK']) - last_pullback))
+                                (((price - last_pullback) / price) * 100) > ATR_PERCENT*2):
+                                amount = (wallet['Capital'] * 0.005) / (price - last_pullback)
                                 fees = amount*price*0.00075
                                 pullback = True
                             else:
@@ -614,7 +613,7 @@ def on_message(ws, message):
 
                 # Calculate +/-DI and DX
                 if(allCrypto[crypto].get('S_POS_DM') is not None and
-                    allCrypto[crypto].get('S_POS_DM') is not None and
+                    allCrypto[crypto].get('S_NEG_DM') is not None and
                     allCrypto[crypto].get('ADX_ATR') is not None):
 
                     # Calculate DI Value
@@ -742,7 +741,7 @@ def run():
         te = time.time()
         print(te - ts)
         ws = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
-        init()  
+        # init()  
         while True:
             while(not start):
                 time_now = datetime.now()
