@@ -1,4 +1,7 @@
 # Calculate exponential moving average
+from numpy import average
+
+
 def cal_ema(total_close, curr_close, curr_day, period, prev_ema):
     ema = 0.0
     weight_ratio = 2 / (period + 1)
@@ -62,6 +65,26 @@ def cal_dx(p_di, n_di):
 def cal_macd(ema12, ema26):
     return ema12 - ema26
 
+# Calculate gain or loss
+def cal_gain_loss(close, prev_close):
+    gain_loss = close - prev_close
+    gain = 0.0
+    loss = 0.0
+    if gain_loss > 0:
+        gain = gain_loss
+    else:
+        loss = -gain_loss
+    return gain, loss
+
+# Calculate relative strength
+def cal_rs(average_gain, average_loss):
+    return average_gain / average_loss
+
+# Caculate relative strength index
+def cal_rsi(relative_strength):
+    return 100 - (100 / (1 + relative_strength))
+
+# Calculate the total of the array
 def first_period_total(array):
     total = 0.0
     for indicator in array:

@@ -4,6 +4,8 @@ def init_wallet(wallet):
     wallet['total_trade'] = 0
     wallet['win_trade'] = 0
     wallet['lose_trade'] = 0
+    wallet['COIN'] = ""
+    wallet['ASSET_WORTH'] = 0.0
 
 def buy_crypto(wallet, amount, price, fees):
     wallet['Capital'] = wallet['Capital'] - (amount * price) - fees

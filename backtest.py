@@ -1,5 +1,6 @@
 from csv import excel_tab
 from enum import Flag
+from inspect import get_annotations
 from logging import exception
 from pickle import HIGHEST_PROTOCOL
 import websocket, json, time
@@ -21,7 +22,9 @@ ATR_PERCENT = 0.3
 ONE_MIN_START = 0
 ONE_MIN_END = 59
 ADX_INDICATOR_PERIOD = 14
+RSI_INDICATOR_PERIOD = 14
 ADX_ARRAY_SIZE = 120
+RSI_ARRAY_SIZE = 120
 POS_DI_ARRAY_SIZE = 120
 NEG_DI_ARRAY_SIZE = 120
 CP_ARRAY_SIZE = 120
@@ -29,7 +32,7 @@ HP_ARRAY_SIZE = 120
 LWP_ARRAY_SIZE = 120
 MACD_ARRAY_SIZE = 120
 DAY_CANDLES_PERIOD = "1000 days ago UTC"
-MINUTE_CANDLES_PERIOD = "4 year ago UTC"
+MINUTE_CANDLES_PERIOD = "1 year ago UTC"
 MINUTE_KLINE_INTERVAL = Client.KLINE_INTERVAL_5MINUTE
 EMA_9 = 9
 EMA_12 = 12
@@ -136,10 +139,25 @@ def init():
         print("Error adding short listed crypto")
         print(e)
 
+def get_all_usdt_crypto():
+    try:
+        allcryptotest = client.get_ticker()
+
+        cryptotest = []
+
+        for crypto in allcryptotest:
+            if crypto['symbol'].endswith('USDT'):
+                cryptotest.append(crypto['symbol'])
+        return cryptotest
+    except Exception as e:
+        print("Error adding all USDT crypto")
+        print(e)
 
 def adx_bot(short_listed_crypto):
+    
     try:
         for crypto in tqdm(short_listed_crypto):
+            virtual_wallet.init_wallet(wallet)
             klines = client.get_historical_klines(crypto, 
                                                         MINUTE_KLINE_INTERVAL,
                                                         MINUTE_CANDLES_PERIOD)
@@ -189,8 +207,25 @@ def adx_bot(short_listed_crypto):
             macds = []
             macd_sigs = []
 
+            # Init values for RSI
+            gain = 0.0
+            loss = 0.0
+            total_gains = 0.0
+            total_losses = 0.0
+            average_gain = 0.0
+            average_loss = 0.0
+            rs = 0.0
+            rsi = []
+            gains = []
+            losses = []
+
+            
+
 
             for i in range(kline_len):
+                
+                ################################################################################################
+                # Calculate minute EMA
 
                 current_close = float(klines[i][KLINE_CLOSE_INDEX])
                 total_close += current_close
@@ -221,6 +256,8 @@ def adx_bot(short_listed_crypto):
                 elif ma != 0:
                     ema = ma
 
+                #####################################################################################################
+
                 # Initiate OHLC values
                 open = float(klines[i][KLINE_OPEN_INDEX])
                 high = float(klines[i][KLINE_HIGH_INDEX])
@@ -239,6 +276,27 @@ def adx_bot(short_listed_crypto):
                     prev_close = float(klines[i-1][KLINE_CLOSE_INDEX])
 
                     #########################################################################################################
+                    # Calculate RSI
+
+                    gain, loss = ta_cal.cal_gain_loss(close, prev_close)
+
+                    ta_cal.insert_till_max(gains, gain, RSI_INDICATOR_PERIOD)
+                    ta_cal.insert_till_max(losses, loss, RSI_INDICATOR_PERIOD)
+                    
+                    if len(gains) == RSI_INDICATOR_PERIOD:
+                        total_gains = ta_cal.first_period_total(gains)
+                        average_gain = total_gains / RSI_INDICATOR_PERIOD
+                    if len(losses) == RSI_INDICATOR_PERIOD:
+                        total_losses = ta_cal.first_period_total(losses)
+                        average_loss = total_losses / RSI_INDICATOR_PERIOD
+                    if len(gains) == RSI_INDICATOR_PERIOD and len(losses) == RSI_INDICATOR_PERIOD:
+                        if average_loss != 0.0:
+                            rs = ta_cal.cal_rs(average_gain, average_loss)
+                            ta_cal.insert_till_max(rsi, ta_cal.cal_rsi(rs), RSI_ARRAY_SIZE)
+                        else:
+                            ta_cal.insert_till_max(rsi, 100, RSI_ARRAY_SIZE)
+
+                    #########################################################################################################
                     # Calculate MACD
 
                     if i >= EMA_26 - 1:
@@ -250,6 +308,7 @@ def adx_bot(short_listed_crypto):
                         signal = ta_cal.cal_ema(total_macd, macd, num_sig, EMA_9, signal)
                         ta_cal.insert_till_max(macd_sigs, signal, MACD_ARRAY_SIZE)
 
+                    #########################################################################################################
 
                     #########################################################################################################
                     # Calculate DM
@@ -282,7 +341,7 @@ def adx_bot(short_listed_crypto):
                         else:
                             adx_atr = ta_cal.wilder_first_smoothing(true_range, adx_atr, ADX_INDICATOR_PERIOD)
                         if atr == 0.0:
-                            atr = ta_cal.first_period_total(tr)/14
+                            atr = ta_cal.first_period_total(tr)/ADX_INDICATOR_PERIOD
                         else:
                             atr = ((atr * ADX_INDICATOR_PERIOD) - previous_first_tr + true_range) / ADX_INDICATOR_PERIOD
                     ###########################################################################################################
@@ -335,6 +394,8 @@ def adx_bot(short_listed_crypto):
                                 pos_dis[-1] > neg_dis[-1] and
                                 # macds[-1] < 0 and
                                 macds[-1] > macd_sigs[-1] and
+                                macds[-2] < macd_sigs[-2] and
+                                rsi[-1] > 50 and
                                 ema != 0.0 and
                                 open > ema and
                                 ema_9 > ema_50 and
@@ -446,9 +507,8 @@ start = datetime.now()
 
 # short_listed_cryp = init()
 virtual_wallet.init_wallet(wallet)
-short_listed_cryp = ['TRXUSDT']
+short_listed_cryp = get_all_usdt_crypto()
 adx_bot(short_listed_cryp)
-print(boughtCrypto)
 print(wallet)
 end = datetime.now()
 print(end - start)
