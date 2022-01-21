@@ -58,6 +58,10 @@ def cal_dx(p_di, n_di):
         dx =  ( abs(p_di - n_di) / (p_di + n_di) ) * 100.0
     return dx
 
+# Calculate MACD
+def cal_macd(ema12, ema26):
+    return ema12 - ema26
+
 def first_period_total(array):
     total = 0.0
     for indicator in array:

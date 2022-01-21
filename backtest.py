@@ -27,8 +27,9 @@ NEG_DI_ARRAY_SIZE = 120
 CP_ARRAY_SIZE = 120
 HP_ARRAY_SIZE = 120
 LWP_ARRAY_SIZE = 120
+MACD_ARRAY_SIZE = 120
 DAY_CANDLES_PERIOD = "1000 days ago UTC"
-MINUTE_CANDLES_PERIOD = "2 years ago UTC"
+MINUTE_CANDLES_PERIOD = "4 year ago UTC"
 MINUTE_KLINE_INTERVAL = Client.KLINE_INTERVAL_5MINUTE
 EMA_9 = 9
 EMA_12 = 12
@@ -169,7 +170,7 @@ def adx_bot(short_listed_crypto):
             highs = []
             lows = []
 
-            # Init Values to find EMA
+            # Init values to find EMA
             total_close = 0.0
             num_days = 0
             ema = 0.0
@@ -178,6 +179,15 @@ def adx_bot(short_listed_crypto):
             ema_12 = 0.0
             ema_26 = 0.0
             ema_50 = 0.0
+            ema_200 = 0.0
+
+            # Init values for MACD
+            macd = 0.0
+            signal = 0.0
+            total_macd = 0.0
+            num_sig = 0
+            macds = []
+            macd_sigs = []
 
 
             for i in range(kline_len):
@@ -227,6 +237,19 @@ def adx_bot(short_listed_crypto):
                     prev_high = float(klines[i-1][KLINE_HIGH_INDEX])
                     prev_low = float(klines[i-1][KLINE_LOW_INDEX])
                     prev_close = float(klines[i-1][KLINE_CLOSE_INDEX])
+
+                    #########################################################################################################
+                    # Calculate MACD
+
+                    if i >= EMA_26 - 1:
+                        macd = ta_cal.cal_macd(ema_12, ema_26)
+                        ta_cal.insert_till_max(macds, macd, MACD_ARRAY_SIZE)
+                        total_macd += macd
+                        num_sig += 1
+                    if len(macds) >= EMA_9:
+                        signal = ta_cal.cal_ema(total_macd, macd, num_sig, EMA_9, signal)
+                        ta_cal.insert_till_max(macd_sigs, signal, MACD_ARRAY_SIZE)
+
 
                     #########################################################################################################
                     # Calculate DM
@@ -301,18 +324,21 @@ def adx_bot(short_listed_crypto):
 
                         adxHL = ta_cal.find_peak_trough(adxs, adxHL)
 
-                        if len(adxHL) > 2 and len(adxs) > 4:
+                        if len(adxHL) > 2 and len(adxs) > 4 and len(macd_sigs) > 0:
                             if (((atr / open ) * 100.0) > ATR_PERCENT and
                                 adxHL[0]['H/L'] == 'L' and
                                 adxHL[1]['H/L'] == 'H' and
                                 adxs[adxHL[1]['index']] > 20 and
                                 adxs[-1] > adxs[adxHL[1]['index']] and 
-                                # adxs[-1] > 20 and
                                 adxs[-2] < adxs[adxHL[1]['index']] and
                                 pos_dis[adxHL[1]['index']] > neg_dis[adxHL[1]['index']] and
                                 pos_dis[-1] > neg_dis[-1] and
+                                # macds[-1] < 0 and
+                                macds[-1] > macd_sigs[-1] and
                                 ema != 0.0 and
                                 open > ema and
+                                ema_9 > ema_50 and
+                                ema_50 > ema_200 and
                                 wallet['IN_POSITION'] == False
                                 ):
                                 price = open
@@ -420,7 +446,7 @@ start = datetime.now()
 
 # short_listed_cryp = init()
 virtual_wallet.init_wallet(wallet)
-short_listed_cryp = ['COCOSUSDT']
+short_listed_cryp = ['TRXUSDT']
 adx_bot(short_listed_cryp)
 print(boughtCrypto)
 print(wallet)
