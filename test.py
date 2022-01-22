@@ -91,8 +91,9 @@ larr = [0,1,2,3,4,3,2,1,3,4,5,6,7,8,9,2,4,1,7,3,8]
 empty = []
 
 empty = find_peak_trough(arr5,empty)
+testarr = [1,2,3,4,5,6,7,8,9]
 
-print(empty)
+print(testarr[4:len(testarr)])
 # print(sys.getrecursionlimit())
 
 # print(larr[testarr[0]['index']])

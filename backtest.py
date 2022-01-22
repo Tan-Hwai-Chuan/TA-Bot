@@ -1,13 +1,9 @@
-from csv import excel_tab
-from enum import Flag
 from inspect import get_annotations
 from logging import exception
 from pickle import HIGHEST_PROTOCOL
-import websocket, json, time
-import sqlalchemy as sql
 import pandas as pd
+import sqlalchemy as sql
 import config
-import winsound
 import ta_cal
 import virtual_wallet
 from datetime import datetime
@@ -17,10 +13,10 @@ from tqdm import tqdm
 
 client = Client(config.API_KEY, config.API_SECRET)
 
+engine = sql.create_engine('sqlite:///backtest_1year.db')
+
 SOCKET ="wss://stream.binance.com:9443/ws/!ticker@arr"
 ATR_PERCENT = 0.3
-ONE_MIN_START = 0
-ONE_MIN_END = 59
 ADX_INDICATOR_PERIOD = 14
 RSI_INDICATOR_PERIOD = 14
 ADX_ARRAY_SIZE = 120
@@ -39,13 +35,13 @@ EMA_12 = 12
 EMA_26 = 26
 EMA_50 = 50
 EMA_200 = 200
+KLINE_OPENTIME_INDEX = 0
 KLINE_OPEN_INDEX = 1
 KLINE_HIGH_INDEX = 2
 KLINE_LOW_INDEX = 3
 KLINE_CLOSE_INDEX = 4
 KLINE_VOLUME_INDEX = 5
-DATABASE_NAME = 'RECORD_CRYPTO'
-PRINT_NAME = 'ADX_PEAK_TEST_3_ADX>15'
+DATABASE_NAME = 'BACKTEST_1YEAR'
 TRADING_FEES = 0.00075
 TRADE_QUANTITY = 0.05
 BREAK_EVEN_RATIO = (1 + TRADING_FEES)/(1 - TRADING_FEES)
@@ -54,7 +50,9 @@ ACTIVE_CRYPTO_TRADING_VOLUME = 10000000
 
 dailyEMA = {}
 wallet = {}
+big_wallet = {}
 boughtCrypto = {}
+big_wallet_amount = {}
 
 def init():
 
@@ -152,6 +150,14 @@ def get_all_usdt_crypto():
     except Exception as e:
         print("Error adding all USDT crypto")
         print(e)
+
+def createFrame_boughtCoin(msg):
+    df = pd.DataFrame([msg])
+    df = df.loc[:,['symbol','ATR','PULLBACK','stopLoss','boughtPrice','boughtAmt','boughtTime','boughtFees',
+                    'sellPrice','sellAmt','sellTime','sellFees','Profit','Up/Down']]
+    df.columns = ['symbol','ATR','PullBack','StopLoss','BoughtPrice', 'BoughtAmount','BoughtTime','BoughtFees',
+                    'SellPrice','SellAmount','SellTime','SellFees','Profit','Up/Down']
+    return df
 
 def adx_bot(short_listed_crypto):
     
@@ -257,6 +263,9 @@ def adx_bot(short_listed_crypto):
                     ema = ma
 
                 #####################################################################################################
+
+                # Get open time of trade
+                open_time = int(klines[i][KLINE_OPENTIME_INDEX])
 
                 # Initiate OHLC values
                 open = float(klines[i][KLINE_OPEN_INDEX])
@@ -408,13 +417,18 @@ def adx_bot(short_listed_crypto):
                                 if (last_pullback and 
                                     (((price - last_pullback) / price) * 100) > ATR_PERCENT*2):
                                     amount = (wallet['Capital'] * 0.005) / (price - last_pullback)
+                                    big_amount = (big_wallet['Capital'] * 0.005) / (price - last_pullback)
+                                    big_fees = big_amount*price*0.00075
                                     fees = amount*price*0.00075
                                     pullback = True
                                 else:
                                     amount = (wallet['Capital'] * 0.005) / (atr * 2)
+                                    big_amount = (big_wallet['Capital'] * 0.005) / (atr * 2)
+                                    big_fees = big_amount*price*0.00075
                                     fees = amount*price*0.00075
                                     pullback = False
                                 virtual_wallet.buy_crypto(wallet, amount, price, fees)
+                                virtual_wallet.buy_crypto(big_wallet, big_amount, price, big_fees)
 
                                 boughtCrypto['symbol'] = crypto
                                 boughtCrypto['ATR'] = atr
@@ -425,13 +439,18 @@ def adx_bot(short_listed_crypto):
                                     boughtCrypto['stopLoss'] = "ATR"
                                 boughtCrypto['boughtPrice'] = price
                                 boughtCrypto['boughtAmt'] = amount
-                                boughtCrypto['boughtTime'] = datetime.now()
+                                big_wallet_amount['amount'] = big_amount
+                                boughtCrypto['boughtTime'] = open_time
                                 boughtCrypto['boughtFees'] = fees
 
                                 wallet['IN_POSITION'] = True
                                 wallet['COIN'] = crypto
                                 wallet['ASSET_WORTH'] = price * amount
                                 wallet['total_trade'] += 1
+                                big_wallet['IN_POSITION'] = True
+                                big_wallet['COIN'] = crypto
+                                big_wallet['ASSET_WORTH'] = price * big_amount
+                                big_wallet['total_trade'] += 1
                             elif wallet['IN_POSITION'] == True:
                                 sell_price = 0.0
                                 if (boughtCrypto['stopLoss'] == "PullBack"):
@@ -445,14 +464,18 @@ def adx_bot(short_listed_crypto):
                                         sell_price = boughtCrypto['PULLBACK']
 
                                     amount = boughtCrypto['boughtAmt']
+                                    big_amount = big_wallet_amount['amount']
+                                    big_fees = (sell_price * big_amount) * 0.00075
                                     fees = (sell_price * amount) * 0.00075
 
                                     if sell_price != 0.0:
                                         virtual_wallet.sell_crypto(wallet, amount, sell_price, fees)
+                                        virtual_wallet.sell_crypto(big_wallet, big_amount, sell_price, big_fees)
 
                                         boughtCrypto['sellPrice'] = sell_price
                                         boughtCrypto['sellAmt'] = amount
-                                        boughtCrypto['sellTime'] = datetime.now()
+                                        big_wallet_amount['amount'] = big_amount
+                                        boughtCrypto['sellTime'] = open_time
                                         boughtCrypto['sellFees'] = fees
                                         boughtCrypto['Profit'] = ((boughtCrypto['sellPrice'] * boughtCrypto['sellAmt']) -
                                                                                 (boughtCrypto['boughtPrice'] * boughtCrypto['boughtAmt']) -
@@ -463,13 +486,19 @@ def adx_bot(short_listed_crypto):
                                         else:
                                             boughtCrypto['Up/Down'] = "DOWN"
                                         wallet['IN_POSITION'] = False
-                                        wallet['COIN'] = ""
+                                        big_wallet['IN_POSITION'] = False 
+                                        # wallet['COIN'] = ""
                                         wallet['ASSET_WORTH'] = 0.0
+                                        big_wallet['ASSET_WORTH'] = 0.0
                                         if(sell_price == boughtCrypto['boughtPrice'] + 
                                         ((boughtCrypto['boughtPrice'] - boughtCrypto['PULLBACK']) * 2)):                                                
                                             wallet['win_trade'] += 1
+                                            big_wallet['win_trade'] += 1
                                         else:
                                             wallet['lose_trade'] += 1
+                                            big_wallet['lose_trade'] += 1
+                                        # frame = createFrame_boughtCoin(boughtCrypto)
+                                        # frame.to_sql(crypto, engine, if_exists='append', index=False)
                                 else:
                                     if high > boughtCrypto['boughtPrice'] + (boughtCrypto['ATR'] * 4):
                                         sell_price = boughtCrypto['boughtPrice'] + (boughtCrypto['ATR'] * 4)
@@ -477,13 +506,16 @@ def adx_bot(short_listed_crypto):
                                         sell_price = boughtCrypto['boughtPrice'] - (boughtCrypto['ATR'] * 2)
                                     
                                     amount = boughtCrypto['boughtAmt']
+                                    big_amount = big_wallet_amount['amount']
+                                    big_fees = (sell_price * big_amount) * 0.00075
                                     fees = (sell_price * amount) * 0.00075
                                     if sell_price != 0.0:
                                         virtual_wallet.sell_crypto(wallet, amount, sell_price, fees)
+                                        virtual_wallet.sell_crypto(big_wallet, big_amount, sell_price, big_fees)
 
                                         boughtCrypto['sellPrice'] = sell_price
                                         boughtCrypto['sellAmt'] = amount
-                                        boughtCrypto['sellTime'] = datetime.now()
+                                        boughtCrypto['sellTime'] = open_time
                                         boughtCrypto['sellFees'] = fees
                                         boughtCrypto['Profit'] = ((boughtCrypto['sellPrice'] * boughtCrypto['sellAmt']) -
                                                                                 (boughtCrypto['boughtPrice'] * boughtCrypto['boughtAmt']) -
@@ -493,12 +525,31 @@ def adx_bot(short_listed_crypto):
                                         else:
                                             boughtCrypto['Up/Down'] = "DOWN"
                                         wallet['IN_POSITION'] = False
-                                        wallet['COIN'] = ""
+                                        big_wallet['IN_POSITION'] = False 
+                                        # wallet['COIN'] = ""
                                         wallet['ASSET_WORTH'] = 0.0
+                                        big_wallet['ASSET_WORTH'] = 0.0
                                         if(sell_price == boughtCrypto['boughtPrice'] + (boughtCrypto['ATR'] * 4)):                                                
                                             wallet['win_trade'] += 1
+                                            big_wallet['win_trade'] += 1
                                         else:
                                             wallet['lose_trade'] += 1
+                                            big_wallet['lose_trade'] += 1
+                                        # frame = createFrame_boughtCoin(boughtCrypto)
+                                        # frame.to_sql(crypto, engine, if_exists='append', index=False)
+
+                    ########################################################################################################            
+
+            if big_wallet['ASSET_WORTH'] > 0.0:
+                sell_price == closes[-1]
+                big_amount = big_wallet_amount['amount']
+                big_fees = (sell_price * big_amount) * 0.00075
+                virtual_wallet.sell_crypto(big_wallet, big_amount, sell_price, big_fees)
+                big_wallet['IN_POSITION'] = False 
+                big_wallet['ASSET_WORTH'] = 0.0
+            frame = virtual_wallet.createFrame_wallet(wallet)
+            frame.to_sql(DATABASE_NAME, engine, if_exists='append', index=False)
+            print(big_wallet)
     except Exception as e:
         print(e)
 
@@ -507,69 +558,11 @@ start = datetime.now()
 
 # short_listed_cryp = init()
 virtual_wallet.init_wallet(wallet)
+virtual_wallet.init_wallet(big_wallet)
 short_listed_cryp = get_all_usdt_crypto()
+# print(short_listed_cryp)
+# short_listed_cryp = ['LTCUSDT']
 adx_bot(short_listed_cryp)
 print(wallet)
 end = datetime.now()
 print(end - start)
-
-
-
-# def testone():
-#     try:
-#         crypto = 'COCOSUSDT'
-#         kline = client.get_historical_klines(crypto, 
-#                                                 Client.KLINE_INTERVAL_1DAY,
-#                                                 DAY_CANDLES_PERIOD)
-#         total_close = 0.0
-#         kline_len = len(kline)
-#         init_len = len(kline)
-#         num_days = 0
-#         ma = 0.0
-#         ema_9 = 0.0
-#         ema_12 = 0.0
-#         ema_26 = 0.0
-#         ema_50 = 0.0
-#         ema_200 = 0.0
-#         dailyEMA[crypto] = {}
-#         print(init_len)
-
-#         while kline_len > 0:
-#             current_close = float(kline[-kline_len][4])
-#             total_close += current_close
-#             num_days += 1
-#             if(init_len < 9):
-#                 ma = ta_cal.cal_ema(total_close, current_close, num_days, init_len, ma)
-#                 print(ma)
-#             elif(init_len < 12):
-#                 ema_9 = ta_cal.cal_ema(total_close, current_close, num_days, EMA_9, ema_9)
-#             elif(init_len < 26):
-#                 ema_12 = ta_cal.cal_ema(total_close, current_close, num_days, EMA_12, ema_12)
-#             elif(init_len < 50):
-#                 ema_26 = ta_cal.cal_ema(total_close, current_close, num_days, EMA_26, ema_26)
-#             elif(init_len < 200):
-#                 ema_50 = ta_cal.cal_ema(total_close, current_close, num_days, EMA_50, ema_50)
-#             else:
-#                 ema_200 = ta_cal.cal_ema(total_close, current_close, num_days, EMA_200, ema_200)
-
-#             dailyEMA[crypto]['symbol'] = crypto
-#             dailyEMA[crypto]['EMA'] = 0.0
-            
-#             if ema_200 != 0:
-#                 dailyEMA[crypto]['EMA'] = ema_200
-#             elif ema_50 != 0:
-#                 dailyEMA[crypto]['EMA'] = ema_50
-#             elif ema_26 != 0:
-#                 dailyEMA[crypto]['EMA'] = ema_26
-#             elif ema_12 != 0:
-#                 dailyEMA[crypto]['EMA'] = ema_12
-#             elif ema_9 != 0:
-#                 dailyEMA[crypto]['EMA'] = ema_9
-#             elif ma != 0:
-#                 dailyEMA[crypto]['EMA'] = ma
-
-#             kline_len -= 1
-            
-#     except Exception as e:
-#         print("Error Calculating EMA")
-#         print(e)
